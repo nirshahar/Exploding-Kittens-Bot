@@ -67,4 +67,4 @@ async def on_raw_reaction_add(payload):
         await reaction_channel.send("TOORTOOLE")
 
 
-client.run('ODYzMzU0Mjg3Mjc1MTE0NTA2.YOlrVg.Tq-izs2y5Vt3Bw0fEr5MgWdyMQo')
+client.run('ODYzMzU0Mjg3Mjc1MTE0NTA2.YOlrVg.J92rxBDiAViYholpHb-M1d3fNww')
