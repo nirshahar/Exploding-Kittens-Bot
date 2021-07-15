@@ -2,16 +2,76 @@ import asyncio
 import discord
 from discord.ext import commands
 import random
-from GameLogic import Game
+from GameLogic import *
 
 intents = discord.Intents.default()
 intents.members = True
 
-
-Client = discord.Client()
 client = commands.Bot(command_prefix="!", intents=intents)
-
 GAME_CATEGORY = 863371910465191947
+
+FINISH_TURN = "finish turn"
+
+players_dict = None
+game = None
+
+
+def transform_to_int(emoji):
+    if emoji == '1️⃣':
+        return 0
+    elif emoji == '2️⃣':
+        return 1
+    elif emoji == '3️⃣':
+        return 2
+    elif emoji == '4️⃣':
+        return 3
+    elif emoji == '5️⃣':
+        return 4
+    elif emoji == '6️⃣':
+        return 5
+    elif emoji == '7️⃣':
+        return 6
+    elif emoji == '8️⃣':
+        return 7
+    elif emoji == '9️⃣':
+        return 8
+    else:
+        print("u stoopid")
+        assert False
+
+
+def transform_to_card_type(emoji):
+    if emoji == "❔":
+        return CardType.SHUFFLE
+    elif emoji == "⏭️":
+        return CardType.SKIP
+    elif emoji == "💣":
+        return CardType.EXPLODING
+    elif emoji == "👁️":
+        return CardType.SEE_FUTURE
+    elif emoji == "🛑":
+        return CardType.NOPE
+    elif emoji == "⚡":
+        return CardType.ATTACK
+    elif emoji == "✅":
+        return CardType.DEFUSE
+    elif emoji == "🖤":
+        return CardType.FAVOR
+    elif emoji == "🧔":
+        return CardType.NORMAL_BEARD
+    elif emoji == "🍈":
+        return CardType.NORMAL_MELON
+    elif emoji == "🥔":
+        return CardType.NORMAL_POTATO
+    elif emoji == "🌈":
+        return CardType.NORMAL_RAINBOW
+    elif emoji == "🌮":
+        return CardType.NORMAL_TACO
+    elif emoji == "🃏":
+        return FINISH_TURN
+    else:
+        print("yoo stoopid")
+        assert False
 
 
 @client.event
@@ -20,39 +80,8 @@ async def on_ready():
         f"Bot ready! Running version {str(discord.__version__)} Have fun exploding kittens!")
 
 
-@client.command()
-async def start(ctx):
-    # startup functions
-    voice_channel = ctx.author.voice.channel
-    game_category = client.get_channel(GAME_CATEGORY)
-    players = voice_channel.members
-    game_channels = await create_voice_channels(players, game_category)
-    game = Game(len(players), len(players) - 1)
-    queue = players.copy()
-    random.shuffle(queue)
-    queue_dict = {p: h for p, h in zip(queue, game.players)}
-    await do_turn(queue, queue_dict, game_channels)
-
-
-async def add_reactions(player, hand, game_channel):
-    pass
-
-
-async def show_hand(player, hand, game_channel):
-    await game_channel.send(hand)
-
-
-async def do_turn(queue, queue_dict, game_channels):
-
-    for player in queue:
-        await show_hand(player, queue_dict[player], game_channels[player])
-    current_player = queue[0]
-    add_card_reactions(current_player, queue_dict[current_player])
-
-
 async def create_voice_channels(members, game_category):
     game_channels = {}
-    print(game_category)
     for member in members:
         for channel in game_category.channels:
             if channel.permissions_for(member).view_channel:
@@ -67,18 +96,61 @@ async def create_voice_channels(members, game_category):
     return game_channels
 
 
+async def do_turn(game: Game):
+    for player in game.players:
+        await player.show_hand()
+
+    current_player = game.players[game.cur_turn]
+
+
 @client.event
 async def on_raw_reaction_add(payload):
-    user = payload.member
-    if user.bot:
+    member = payload.member
+    if member.bot or (member not in players_dict) or players_dict[member] != game.players[game.cur_turn]:
         return
 
+    player = players_dict[member]
+
     emoji = str(payload.emoji)
+
+    # players_dict[member].receive_emoji(emoji)
     reaction_channel = client.get_channel(payload.channel_id)
     # reaction_guild = client.get_guild(payload.guild_id)
     # reaction_message = await reaction_channel.fetch_message(payload.message_id)
     if emoji == '🐢':
         await reaction_channel.send("TOORTOOLE")
+
+    if is_hand_event_active():
+        card_type = transform_to_card_type(emoji)
+        print(card_type)
+        if card_type == FINISH_TURN:
+            game.finish_turn()
+        else:
+            card_idx = player.hand.cards.index(card_type)
+            await player.play_card(card_idx)
+        await player.show_hand()
+    else:
+        set_event(transform_to_int(emoji))
+
+
+@ client.command()
+async def start(ctx):
+    # startup functions
+    voice_channel = ctx.author.voice.channel
+    game_category = client.get_channel(GAME_CATEGORY)
+    members = voice_channel.members
+    game_channels = await create_voice_channels(members, game_category)
+
+    players = [Player(member, channel)
+               for member, channel in game_channels.items()]
+
+    global game
+    global players_dict
+
+    game = Game(players, len(players) - 1)
+    players_dict = {member: player for member, player in zip(members, players)}
+
+    await do_turn(game)
 
 with open("token.txt", "r") as token_file:
     token = token_file.readline()
