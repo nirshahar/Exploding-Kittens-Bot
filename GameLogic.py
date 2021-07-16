@@ -240,13 +240,25 @@ class Player(object):
 
     async def show_hand(self):
         await self.clear_channel()
-        message = await self.channel.send("\n".join(str(card) for card in self.hand.cards))
+        cards = []
+        card_indices = {}
+
+        for card in self.hand.cards:
+            if card in card_indices:
+                _, v = cards[card_indices[card]]
+                cards[card_indices[card]] = (card, v + 1)
+            else:
+                cards.append((card, 1))
+                card_indices.update({card: len(cards) - 1})
+
+        message = await self.channel.send("\n".join(str(card) + " x " + str(repetitions) for card, repetitions in cards))
 
         seen_cards = set()
         for card in self.hand.cards:
             if card not in seen_cards:
                 seen_cards.add(card)
                 await message.add_reaction(repr(card))
+        await message.add_reaction("🃏")
 
     async def create_choice(self, choices):
         await self.clear_channel()
@@ -281,7 +293,7 @@ class Player(object):
         elif player_card == CardType.FAVOR:
 
             choices = [
-                player for player in self.players if player != self]
+                player for player in self.game.players if player != self]
             choice_idx = await self.create_choice(choices)
 
             chosen_player = choices[choice_idx]
