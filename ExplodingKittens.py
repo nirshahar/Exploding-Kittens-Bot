@@ -37,7 +37,7 @@ def transform_to_int(emoji):
         return 8
     else:
         print("u stoopid")
-        assert False
+        return None
 
 
 def transform_to_card_type(emoji):
@@ -53,8 +53,6 @@ def transform_to_card_type(emoji):
         return CardType.NOPE
     elif emoji == "⚡":
         return CardType.ATTACK
-    elif emoji == "✅":
-        return CardType.DEFUSE
     elif emoji == "🖤":
         return CardType.FAVOR
     elif emoji == "🧔":
@@ -71,7 +69,7 @@ def transform_to_card_type(emoji):
         return FINISH_TURN
     else:
         print("yoo stoopid")
-        assert False
+        return None
 
 
 @client.event
@@ -100,13 +98,11 @@ async def do_turn(game: Game):
     for player in game.players:
         await player.show_hand()
 
-    current_player = game.players[game.cur_turn]
-
 
 @client.event
 async def on_raw_reaction_add(payload):
     member = payload.member
-    if member.bot or (member not in players_dict) or players_dict[member] != game.players[game.cur_turn]:
+    if member.bot or (member not in players_dict) or players_dict[member] != game.cur_active_player:
         return
 
     player = players_dict[member]
@@ -122,15 +118,18 @@ async def on_raw_reaction_add(payload):
 
     if is_hand_event_active():
         card_type = transform_to_card_type(emoji)
-        print(card_type)
-        if card_type == FINISH_TURN:
-            game.finish_turn()
-        else:
-            card_idx = player.hand.cards.index(card_type)
-            await player.play_card(card_idx)
-        await player.show_hand()
+        if card_type is not None:
+            print(card_type)
+            if card_type == FINISH_TURN:
+                await game.finish_turn()
+            else:
+                card_idx = player.hand.cards.index(card_type)
+                await player.play_card(card_idx)
+            await player.show_hand()
     else:
-        set_event(transform_to_int(emoji))
+        choice = transform_to_int(emoji)
+        if choice is not None:
+            set_event(choice)
 
 
 @ client.command()

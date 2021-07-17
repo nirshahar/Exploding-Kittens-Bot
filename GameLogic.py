@@ -1,35 +1,8 @@
 import asyncio
 from enum import Enum, unique, auto
 from typing import List
-import discord
 import random
 
-# handDone = False
-# handChoice = None
-
-# def set_hand_choice(val):
-#     global handDone
-#     global handChoice
-
-#     handChoice = val
-#     handDone = True
-
-
-# def is_hand_choice_available():
-#     global handDone
-
-#     return handDone
-
-
-# def get_hand_choice():
-#     global handDone
-#     global handChoice
-
-#     if handDone:
-#         val = handChoice
-#         handDone = False
-
-#         return val
 eventDone = False
 eventValue = None
 isHandEvent = True
@@ -229,6 +202,8 @@ class Player(object):
         self.hand: Hand = None
         self.game: Game = None
 
+        self.normals_played_this_turn = set()
+
     def __str__(self) -> str:
         return self.member.name
 
@@ -255,14 +230,16 @@ class Player(object):
 
         seen_cards = set()
         for card in self.hand.cards:
-            if card not in seen_cards:
+            if card is not CardType.DEFUSE and card not in seen_cards:
                 seen_cards.add(card)
                 await message.add_reaction(repr(card))
         await message.add_reaction("🃏")
 
     async def create_choice(self, choices):
+        set_hand_event(False)
+
         await self.clear_channel()
-        await self.channel.send("\n".join(str(choice) + ": " + str(i) for i, choice in enumerate(choices)))
+        await self.channel.send("\n".join(str(choice) + ": " + str(i + 1) for i, choice in enumerate(choices)))
 
         while not is_event_available():
             await asyncio.sleep(0.2)
@@ -270,6 +247,8 @@ class Player(object):
         chosen_val = get_event_value()
 
         print(chosen_val)
+
+        set_hand_event(True)
 
         return chosen_val
 
@@ -286,9 +265,9 @@ class Player(object):
             # TODO
             print(self.game.deck.peek(3))
         elif player_card == CardType.SKIP:
-            self.game.finish_turn(draw=False)
+            await self.game.finish_turn(draw=False)
         elif player_card == CardType.ATTACK:
-            self.game.finish_turn(draw=False)
+            await self.game.finish_turn(draw=False)
             self.game.number_of_turns_for_player += 1
         elif player_card == CardType.FAVOR:
 
@@ -298,6 +277,8 @@ class Player(object):
 
             chosen_player = choices[choice_idx]
 
+            self.game.cur_active_player = chosen_player
+
             favor_card_choices = [card for card in chosen_player.hand.cards]
             favor_card_choice_idx = await chosen_player.create_choice(favor_card_choices)
 
@@ -306,31 +287,27 @@ class Player(object):
             chosen_player.hand.cards.pop(favor_card_choice_idx)
             self.hand.cards.append(chosen_card)
 
-        elif player_card == CardType.DEFUSE:  # what do we do here?
-            pass
-            # choices = ["top", "second from top", "third from top",
-            #            "fourth from top", "fifth from top"]
-            # if len(self.deck.cards) < 5:
-            #     choices = choices[:len(self.deck.cards)]
-            # else:
-            #     choices.append("bottom")
-
-            # choices.append("random")
-
-            # choice = await cur_player.create_choice(choices)
-            # TODO
         elif player_card == CardType.NOPE:  # what do we do here?
             pass  # TODO
-        elif player_card == CardType.NORMAL_BEARD:  # what do we do here?
-            pass  # TODO
-        elif player_card == CardType.NORMAL_MELON:  # what do we do here?
-            pass  # TODO
-        elif player_card == CardType.NORMAL_TACO:  # what do we do here?
-            pass  # TODO
-        elif player_card == CardType.NORMAL_POTATO:  # what do we do here?
-            pass  # TODO
-        elif player_card == CardType.NORMAL_RAINBOW:  # what do we do here?
-            pass  # TODO
+        elif player_card == CardType.NORMAL_BEARD or CardType.NORMAL_MELON or CardType.NORMAL_TACO or CardType.NORMAL_POTATO or CardType.NORMAL_RAINBOW:
+            if player_card in self.normals_played_this_turn:
+                self.normals_played_this_turn.discard(player_card)
+                print("PLAYED TWO NORMALS OF THE SAME TYPE!")
+                choices = [
+                    player for player in self.game.players if player != self]
+
+                choice_idx = await self.create_choice(choices)
+                player_choice = choices[choice_idx]
+
+                if len(player_choice.hand.cards) > 0:
+                    rnd_card_idx = random.randint(
+                        0, len(player_choice.hand.cards))
+
+                    self.hand.cards.append(player_choice.hand[rnd_card_idx])
+                    player_choice.hand.cards.pop(rnd_card_idx)
+
+            else:
+                self.normals_played_this_turn.add(player_card)
 
 
 class Game(object):
@@ -366,6 +343,7 @@ class Game(object):
         self.players = players
 
         self.cur_turn = 0
+        self.cur_active_player = self.players[self.cur_turn]
         self.number_of_turns_for_player = 1
 
         for player in self.players:
@@ -376,17 +354,35 @@ class Game(object):
             hand.cards.extend(self.deck.hand_non_exploding_cards(
                 num_starting_cards - num_defuse_in_start))
 
-    def finish_turn(self, draw=True):
+    async def finish_turn(self, draw=True):
         if draw:
             # Draw a card. If it is an exploding kitten, then either use a defuse or the player loses
             drawn_card = self.deck.hand_card()
-            player_hand = self.players[self.cur_turn]
+            player = self.players[self.cur_turn]
 
             if drawn_card == CardType.EXPLODING:
-                if CardType.DEFUSE in player_hand:
-                    player_hand.remove(CardType.DEFUSE)
-                    # TODO place back the defuse in the spot the player chooses
-                    self.deck.append(CardType.EXPLODING)
+                if CardType.DEFUSE in player.hand.cards:
+                    player.hand.cards.remove(CardType.DEFUSE)
+
+                    choices = ["top", "second from top", "third from top",
+                               "fourth from top", "fifth from top"]
+
+                    if len(self.deck.cards) < 5:
+                        choices = choices[:len(self.deck.cards)]
+                        choices_map = {i: -i-1 for i in range(len(choices))}
+                    else:
+                        choices_map = {i: -i-1 for i in range(len(choices))}
+                        choices.append("bottom")
+                        choices_map.update({len(choices) - 1: 0})
+
+                    choices.append("random")
+                    choices_map.update(
+                        {len(choices) - 1: random.randint(0, len(self.deck.cards) - 1)})
+
+                    choice_idx = await player.create_choice(choices)
+                    chosen_return_idx = choices_map[choice_idx]
+
+                    self.deck.cards.insert(choice_idx, chosen_return_idx)
 
                 else:
                     self.players.pop(self.cur_turn)
@@ -397,10 +393,14 @@ class Game(object):
                         print(
                             f"Game ended! Player: {self.players[0]} has won!")
             else:
-                player_hand.hand.cards.append(drawn_card)
+                player.hand.cards.append(drawn_card)
+
+        player = self.players[self.cur_turn]
+        player.normals_played_this_turn.clear()
 
         self.number_of_turns_for_player -= 1
 
         if self.number_of_turns_for_player <= 0:
             self.number_of_turns_for_player = 1
             self.cur_turn = (self.cur_turn + 1) % len(self.players)
+            self.cur_active_player = self.players[self.cur_turn]
