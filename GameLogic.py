@@ -93,6 +93,131 @@ class CardType(Enum):
             return "🌮"
 
 
+def transform_to_int(emoji):
+    if emoji == '1️⃣':
+        return 0
+    elif emoji == '2️⃣':
+        return 1
+    elif emoji == '3️⃣':
+        return 2
+    elif emoji == '4️⃣':
+        return 3
+    elif emoji == '5️⃣':
+        return 4
+    elif emoji == '6️⃣':
+        return 5
+    elif emoji == '7️⃣':
+        return 6
+    elif emoji == '8️⃣':
+        return 7
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '9️⃣':
+        return 8
+    elif emoji == '🔟':
+        return 9
+    elif emoji == '🌲':
+        return 10
+    elif emoji == '🕛':
+        return 11
+    elif emoji == '🕐':
+        return 12
+    elif emoji == '🕑':
+        return 13
+    elif emoji == '🕒':
+        return 14
+    elif emoji == '🕓':
+        return 15
+    elif emoji == '🕓':
+        return 16
+    else:
+        print("u stoopid")
+        return None
+
+
+def transform_int_to_emoji(i):
+    if i == 0:
+        return '1️⃣'
+    elif i == 1:
+        return '2️⃣'
+    elif i == 2:
+        return '3️⃣'
+    elif i == 3:
+        return '4️⃣'
+    elif i == 4:
+        return '5️⃣'
+    elif i == 5:
+        return '6️⃣'
+    elif i == 6:
+        return '7️⃣'
+    elif i == 7:
+        return '8️⃣'
+    elif i == 8:
+        return '9️⃣'
+    elif i == 9:
+        return '🔟'
+    elif i == 10:
+        return '🌲'
+    elif i == 11:
+        return '🕛'
+    elif i == 12:
+        return '🕐'
+    elif i == 13:
+        return '🕑'
+    elif i == 14:
+        return '🕒'
+    elif i == 15:
+        return '🕓'
+    elif i == 16:
+        return '🕓'
+    else:
+        print("u stoopid")
+        return None
+
+
+FINISH_TURN = "finish turn"
+
+
+def transform_to_card_type(emoji):
+    if emoji == "❔":
+        return CardType.SHUFFLE
+    elif emoji == "⏭️":
+        return CardType.SKIP
+    elif emoji == "💣":
+        return CardType.EXPLODING
+    elif emoji == "👁️":
+        return CardType.SEE_FUTURE
+    elif emoji == "🛑":
+        return CardType.NOPE
+    elif emoji == "⚡":
+        return CardType.ATTACK
+    elif emoji == "🖤":
+        return CardType.FAVOR
+    elif emoji == "🧔":
+        return CardType.NORMAL_BEARD
+    elif emoji == "🍈":
+        return CardType.NORMAL_MELON
+    elif emoji == "🥔":
+        return CardType.NORMAL_POTATO
+    elif emoji == "🌈":
+        return CardType.NORMAL_RAINBOW
+    elif emoji == "🌮":
+        return CardType.NORMAL_TACO
+    elif emoji == "🃏":
+        return FINISH_TURN
+    else:
+        print("yoo stoopid")
+        return None
+
+
 class Deck(object):
 
     def __init__(self,
@@ -201,6 +326,8 @@ class Player(object):
         self.channel = channel
         self.hand: Hand = None
         self.game: Game = None
+        self.hand_message = None
+        self.existing_reactions = set()
 
         self.normals_played_this_turn = set()
 
@@ -214,7 +341,10 @@ class Player(object):
         return await self.channel.send(message)
 
     async def show_hand(self):
-        await self.clear_channel()
+        if self.hand_message is None:
+            await self.clear_channel()
+            self.hand_message = await self.send_message("Starting!")
+
         cards = []
         card_indices = {}
 
@@ -226,29 +356,86 @@ class Player(object):
                 cards.append((card, 1))
                 card_indices.update({card: len(cards) - 1})
 
-        message = await self.channel.send("\n".join(str(card) + " x " + str(repetitions) for card, repetitions in cards))
+        message_content = "\n".join(
+            repr(card) + "  " + str(card) + " " + " x " + str(repetitions) for card, repetitions in cards)
 
-        seen_cards = set()
+        if self.game.players[self.game.cur_turn] == self:
+            message_content = f"You have {self.game.number_of_turns_for_player} turns left\n\n" + \
+                message_content + "\n\n Press the 'joker' card to end your turn and draw a card"
+        else:
+            message_content = "Its not your turn currently. Please wait patiently\n\n" + message_content
+
+        print("sending message: \n\n" + message_content +
+              "\n\n to player " + self.member.name)
+        await self.hand_message.edit(content=message_content)
+
+        emojis = []
         for card in self.hand.cards:
-            if card is not CardType.DEFUSE and card not in seen_cards:
-                seen_cards.add(card)
-                await message.add_reaction(repr(card))
-        await message.add_reaction("🃏")
+            if card is not CardType.DEFUSE and card not in emojis:
+                emojis.append(card)
+
+        for card in emojis:
+            if card not in self.existing_reactions:
+                self.existing_reactions.add(card)
+                await self.hand_message.add_reaction(repr(card))
+
+        removed_reactions = []
+        for reaction in self.existing_reactions:
+            if reaction != "🃏" and reaction not in emojis:
+                removed_reactions.append(reaction)
+                await self.hand_message.remove_reaction(repr(reaction), self.hand_message.author)
+
+        for reaction in removed_reactions:
+            self.existing_reactions.remove(reaction)
+
+        if "🃏" not in self.existing_reactions:
+            self.existing_reactions.add("🃏")
+            await self.hand_message.add_reaction("🃏")
+
+    # async def show_hand(self):
+    #     await self.clear_channel()
+    #     cards = []
+    #     card_indices = {}
+
+    #     for card in self.hand.cards:
+    #         if card in card_indices:
+    #             _, v = cards[card_indices[card]]
+    #             cards[card_indices[card]] = (card, v + 1)
+    #         else:
+    #             cards.append((card, 1))
+    #             card_indices.update({card: len(cards) - 1})
+
+    #     message = await self.channel.send("\n".join(str(card) + " x " + str(repetitions) for card, repetitions in cards) + "\n\n Press the 'joker' card to end your turn and draw a card")
+
+    #     seen_cards = set()
+    #     for card in self.hand.cards:
+    #         if card is not CardType.DEFUSE and card not in seen_cards:
+    #             seen_cards.add(card)
+    #             await message.add_reaction(repr(card))
+    #     await message.add_reaction("🃏")
+
+    #     self.hand_message = message
 
     async def create_choice(self, choices):
         set_hand_event(False)
 
-        await self.clear_channel()
-        await self.channel.send("\n".join(str(choice) + ": " + str(i + 1) for i, choice in enumerate(choices)))
+        await self.hand_message.edit(content="\n".join(str(choice) + ": " + transform_int_to_emoji(i) for i, choice in enumerate(choices)))
+        await self.hand_message.clear_reactions()
+        for i in range(len(choices)):
+            await self.hand_message.add_reaction(transform_int_to_emoji(i))
 
         while not is_event_available():
             await asyncio.sleep(0.2)
 
-        chosen_val = get_event_value()
+        set_hand_event(True)
 
+        chosen_val = get_event_value()
         print(chosen_val)
 
-        set_hand_event(True)
+        await self.hand_message.clear_reactions()
+        self.existing_reactions = set()
+
+        await self.show_hand()
 
         return chosen_val
 
@@ -287,6 +474,11 @@ class Player(object):
             chosen_player.hand.cards.pop(favor_card_choice_idx)
             self.hand.cards.append(chosen_card)
 
+            self.game.cur_active_player = self.game.players[self.game.cur_turn]
+
+            await chosen_player.show_hand()
+            await self.show_hand()
+
         elif player_card == CardType.NOPE:  # what do we do here?
             pass  # TODO
         elif player_card == CardType.NORMAL_BEARD or CardType.NORMAL_MELON or CardType.NORMAL_TACO or CardType.NORMAL_POTATO or CardType.NORMAL_RAINBOW:
@@ -305,6 +497,7 @@ class Player(object):
 
                     self.hand.cards.append(player_choice.hand[rnd_card_idx])
                     player_choice.hand.cards.pop(rnd_card_idx)
+                    await player_choice.show_hand()
 
             else:
                 self.normals_played_this_turn.add(player_card)
@@ -354,6 +547,9 @@ class Game(object):
             hand.cards.extend(self.deck.hand_non_exploding_cards(
                 num_starting_cards - num_defuse_in_start))
 
+    def kill(player: Player):
+        print(player)
+
     async def finish_turn(self, draw=True):
         if draw:
             # Draw a card. If it is an exploding kitten, then either use a defuse or the player loses
@@ -401,6 +597,11 @@ class Game(object):
         self.number_of_turns_for_player -= 1
 
         if self.number_of_turns_for_player <= 0:
+            last_player = self.cur_active_player
+
             self.number_of_turns_for_player = 1
             self.cur_turn = (self.cur_turn + 1) % len(self.players)
             self.cur_active_player = self.players[self.cur_turn]
+
+            await last_player.show_hand()
+            await self.cur_active_player.show_hand()
