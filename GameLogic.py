@@ -439,6 +439,10 @@ class Player(object):
 
         return chosen_val
 
+    async def delete_message(self, message):
+        if message != self.hand_message:
+            await message.delete()
+
     async def play_card(self, card_idx):
         cards = self.hand.cards
         assert card_idx < len(cards)
@@ -450,7 +454,7 @@ class Player(object):
             self.game.deck.shuffle()
         elif player_card == CardType.SEE_FUTURE:
             # TODO
-            print(self.game.deck.peek(3))
+            await (await self.channel.send(self.game.deck.peek(3))).add_reaction("❌")
         elif player_card == CardType.SKIP:
             await self.game.finish_turn(draw=False)
         elif player_card == CardType.ATTACK:
@@ -480,7 +484,7 @@ class Player(object):
             await self.show_hand()
 
         elif player_card == CardType.NOPE:  # what do we do here?
-            pass  # TODO
+            await (await self.send_message("number of cards left: " + str(len(self.game.deck.cards)))).add_reaction("❌")
         elif player_card == CardType.NORMAL_BEARD or CardType.NORMAL_MELON or CardType.NORMAL_TACO or CardType.NORMAL_POTATO or CardType.NORMAL_RAINBOW:
             if player_card in self.normals_played_this_turn:
                 self.normals_played_this_turn.discard(player_card)
@@ -515,7 +519,7 @@ class Game(object):
                  num_favor: int = 4,
                  num_skip: int = 4,
                  num_attack: int = 4,
-                 num_nope: int = 5,
+                 num_nope: int = 4,
                  num_normal: int = 20,
                  num_defuse_in_start: int = 1):
 
@@ -547,8 +551,13 @@ class Game(object):
             hand.cards.extend(self.deck.hand_non_exploding_cards(
                 num_starting_cards - num_defuse_in_start))
 
-    def kill(player: Player):
+    def kill(self, player: Player):
         print(player)
+        idx = self.players.index(player)
+        if self.cur_turn >= idx:
+            self.cur_turn -= 1
+
+        self.players.pop(idx)
 
     async def finish_turn(self, draw=True):
         if draw:
@@ -564,7 +573,7 @@ class Game(object):
                                "fourth from top", "fifth from top"]
 
                     if len(self.deck.cards) < 5:
-                        choices = choices[:len(self.deck.cards)]
+                        choices = choices[:len(self.deck.cards) + 1]
                         choices_map = {i: -i-1 for i in range(len(choices))}
                     else:
                         choices_map = {i: -i-1 for i in range(len(choices))}
@@ -573,15 +582,17 @@ class Game(object):
 
                     choices.append("random")
                     choices_map.update(
-                        {len(choices) - 1: random.randint(0, len(self.deck.cards) - 1)})
+                        {len(choices) - 1: random.randint(0, len(self.deck.cards))})
 
                     choice_idx = await player.create_choice(choices)
                     chosen_return_idx = choices_map[choice_idx]
 
-                    self.deck.cards.insert(choice_idx, chosen_return_idx)
+                    self.deck.cards.insert(
+                        chosen_return_idx, CardType.EXPLODING)
 
                 else:
                     self.players.pop(self.cur_turn)
+                    self.kill(self.players[self.cur_active_player])
                     # TODO send to discord the message
                     print("Player exploded!")
 
